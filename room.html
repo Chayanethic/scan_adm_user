@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room QR Sharer - P2P</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; text-align: center; }
+        #create-section, #join-section, #room-section { margin: 20px; }
+        input, button { padding: 10px; margin: 10px; font-size: 16px; }
+        #scanner-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; }
+        #scanner { width: 300px; height: 300px; background: #fff; padding: 20px; border-radius: 10px; }
+        #shared-link { font-size: 18px; color: green; margin-top: 20px; }
+        @media (max-width: 600px) { #scanner { width: 90%; height: auto; } }
+    </style>
+    <!-- PeerJS for P2P -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <!-- html5-qrcode for fast QR scanning -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+    <h1>Room QR Sharer - P2P (No Storage)</h1>
+    <p>Use this on laptop/mobile. Creator acts as host. All devices must be online; uses WebRTC via PeerJS signaling (free, no storage).</p>
+
+    <!-- Create Room Section -->
+    <div id="create-section">
+        <button id="create-btn">Create Room (Admin)</button>
+    </div>
+
+    <!-- Join Room Section -->
+    <div id="join-section">
+        <input id="room-code-input" type="text" placeholder="Enter Room Code">
+        <button id="join-btn">Join Room</button>
+    </div>
+
+    <!-- Room Display Section (hidden initially) -->
+    <div id="room-section" style="display: none;">
+        <p id="room-code"></p>
+        <button id="scan-btn" style="display: none;">Open Scanner (Admin)</button>
+        <div id="shared-link"></div>
+    </div>
+
+    <!-- Scanner Modal -->
+    <div id="scanner-modal">
+        <div id="scanner">
+            <div id="qr-reader"></div>
+            <button onclick="closeScanner()">Close</button>
+        </div>
+    </div>
+
+    <script>
+        let peer = null;
+        let isAdmin = false;
+        let roomCode = '';
+        let connections = []; // For admin to broadcast
+        let conn = null; // For joiners
+        let html5QrCode = null;
+
+        // Create Room (Admin)
+        document.getElementById('create-btn').addEventListener('click', () => {
+            roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+            peer = new Peer('room-' + roomCode); // Host peer ID
+
+            peer.on('open', (id) => {
+                enterRoom(true);
+            });
+
+            peer.on('connection', (newConn) => {
+                connections.push(newConn);
+                newConn.on('data', (data) => {
+                    console.log('Received from joiner:', data); // Optional handling
+                });
+                newConn.on('close', () => {
+                    connections = connections.filter(c => c !== newConn);
+                });
+            });
+
+            peer.on('error', (err) => {
+                alert('Error: ' + err.type);
+            });
+        });
+
+        // Join Room
+        document.getElementById('join-btn').addEventListener('click', () => {
+            roomCode = document.getElementById('room-code-input').value.trim().toUpperCase();
+            if (roomCode) {
+                peer = new Peer(); // Anonymous peer for joiner
+
+                peer.on('open', (id) => {
+                    conn = peer.connect('room-' + roomCode);
+                    conn.on('open', () => {
+                        enterRoom(false);
+                    });
+                    conn.on('data', (data) => {
+                        if (data.type === 'link') {
+                            document.getElementById('shared-link').innerText = `Shared Link: ${data.link}`;
+                        }
+                    });
+                    conn.on('error', (err) => {
+                        alert('Connection error');
+                    });
+                });
+            }
+        });
+
+        // Enter Room logic
+        function enterRoom(admin) {
+            isAdmin = admin;
+            document.getElementById('create-section').style.display = 'none';
+            document.getElementById('join-section').style.display = 'none';
+            document.getElementById('room-section').style.display = 'block';
+            document.getElementById('room-code').innerText = `Room Code: ${roomCode}`;
+            if (isAdmin) {
+                document.getElementById('scan-btn').style.display = 'block';
+            }
+        }
+
+        // Broadcast link (Admin)
+        function broadcastLink(link) {
+            connections.forEach(c => {
+                c.send({ type: 'link', link: link });
+            });
+            document.getElementById('shared-link').innerText = `Shared Link: ${link}`;
+        }
+
+        // Open Scanner (Admin only)
+        document.getElementById('scan-btn').addEventListener('click', () => {
+            document.getElementById('scanner-modal').style.display = 'flex';
+            html5QrCode = new Html5Qrcode("qr-reader");
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 20, qrbox: { width: 250, height: 250 } }, // Increased FPS for faster scan
+                onScanSuccess,
+                onScanFailure
+            ).catch(err => {
+                alert('Camera error: ' + err);
+            });
+        });
+
+        // Close Scanner
+        function closeScanner() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    html5QrCode.clear();
+                }).catch(err => console.error(err));
+            }
+            document.getElementById('scanner-modal').style.display = 'none';
+        }
+
+        // Scan Success: Broadcast link
+        function onScanSuccess(decodedText) {
+            broadcastLink(decodedText);
+            alert('Scanned and shared: ' + decodedText);
+            closeScanner();
+        }
+
+        // Scan Failure (continues scanning)
+        function onScanFailure(error) {
+            // Silent
+        }
+    </script>
+</body>
+</html>
