@@ -3,180 +3,179 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast QR Scanner</title>
-    
+    <title>InstaScan</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 0; }
-        
-        /* Layout */
-        .container { max-width: 100%; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        /* Dark Theme for better contrast */
+        body { background-color: #000; color: #fff; font-family: sans-serif; margin: 0; padding: 0; text-align: center; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
         
         /* Buttons */
-        button { padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 50px; margin: 10px; transition: transform 0.1s; }
-        button:active { transform: scale(0.95); }
-        input { padding: 15px; font-size: 18px; border-radius: 8px; border: none; text-align: center; width: 80%; max-width: 300px; margin-bottom: 20px; }
+        button { width: 100%; padding: 15px; font-size: 18px; margin: 10px 0; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        .btn-primary { background-color: #2196F3; color: white; }
+        .btn-danger { background-color: #f44336; color: white; }
+        input { width: 90%; padding: 15px; font-size: 18px; text-align: center; border-radius: 8px; border: none; margin-bottom: 20px; }
 
-        /* Scanner Area - Full Width for ease */
-        #reader { width: 100%; max-width: 500px; background: #000; margin: 0 auto; border-radius: 12px; overflow: hidden; }
+        /* Scanner Box */
+        #reader { width: 100%; border-radius: 10px; overflow: hidden; background: #222; }
+        
+        /* Result List */
+        .list-container { margin-top: 20px; text-align: left; }
+        .scan-item { background: #333; padding: 15px; border-bottom: 1px solid #444; word-break: break-all; animation: popIn 0.3s ease-out; display: flex; align-items: center; }
+        .scan-item:first-child { border-left: 5px solid #0f0; background: #2a3b2a; } /* Highlight newest */
+        
+        .index-num { font-size: 20px; font-weight: bold; color: #888; margin-right: 15px; }
+        a { color: #64b5f6; text-decoration: none; font-size: 18px; }
+
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         
         /* Views */
-        #menu-view, #admin-view, #user-view { width: 100%; display: none; }
-        .visible { display: flex !important; flex-direction: column; align-items: center; }
-
-        /* Results */
-        .scanned-data { background: #222; padding: 15px; margin: 10px; border-radius: 8px; border-left: 5px solid #0f0; text-align: left; width: 90%; max-width: 400px; word-break: break-all; animation: flash 0.5s; }
-        @keyframes flash { 0% { background-color: #0f0; } 100% { background-color: #222; } }
-        
-        .status { color: #888; margin-top: 10px; font-size: 0.9em; }
+        .view { display: none; }
+        .active { display: block; }
     </style>
-
+    
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 </head>
 <body>
 
 <div class="container">
-
-    <div id="menu-view" class="visible">
-        <h1>🚀 Turbo Scanner</h1>
-        <button onclick="setupAdmin()">Create Room (Scan)</button>
-        <button onclick="setupUser()">Join Room (View)</button>
+    
+    <div id="view-menu" class="view active">
+        <h1>⚡ Super Fast Scanner</h1>
+        <button class="btn-primary" onclick="createRoom()">Start Scanning (Admin)</button>
+        <button class="btn-primary" onclick="showJoin()">View Scans (User)</button>
     </div>
 
-    <div id="admin-view">
-        <div style="margin-bottom: 10px;">Room: <span id="admin-room-code" style="color:#0f0; font-weight:bold; font-size:1.2em;">...</span></div>
-        
+    <div id="view-admin" class="view">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <span style="font-size:1.2em;">Room: <b id="admin-room-code" style="color:#0f0">...</b></span>
+            <button onclick="location.reload()" style="width:auto; padding:5px 15px; margin:0; font-size:14px;">Exit</button>
+        </div>
         <div id="reader"></div>
-        
-        <div id="scan-feedback" class="status">Point camera at a QR code</div>
-        <button onclick="location.reload()" style="background: #333; margin-top:20px;">Exit</button>
+        <p style="color:#888; font-size:0.9em;">Scanning... (Only QR Codes)</p>
     </div>
 
-    <div id="user-view">
-        <h2>Viewer Mode</h2>
-        <div id="login-form">
+    <div id="view-user" class="view">
+        <div id="join-section">
             <input type="number" id="room-input" placeholder="Enter Room Code">
-            <button onclick="joinRoom()">Enter Room</button>
+            <button class="btn-primary" onclick="joinRoom()">Connect</button>
         </div>
-
-        <div id="live-feed" style="display:none; width:100%; display:flex; flex-direction:column; align-items:center;">
-            <p>Connected to: <span id="user-room-disp" style="color:#0f0"></span></p>
-            <div id="scan-history" style="width:100%; display:flex; flex-direction:column; align-items:center;"></div>
+        
+        <div id="list-section" style="display:none;">
+             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <span>Room: <b id="user-room-code"></b></span>
+                <button onclick="location.reload()" style="width:auto; padding:5px 15px; margin:0; font-size:14px; background:#444;">Exit</button>
+            </div>
+            <div id="scan-list" class="list-container"></div>
         </div>
-        <button onclick="location.reload()" style="background: #333; margin-top:20px;">Exit</button>
     </div>
 
 </div>
 
 <script>
     const socket = io();
-    let currentRoom = null;
     let html5QrCode;
-    let isScanning = true; // Debounce flag
-
-    // --- SETUP ADMIN ---
-    function setupAdmin() {
+    let currentRoom = "";
+    
+    // --- ADMIN ACTIONS ---
+    function createRoom() {
         socket.emit('create_room');
     }
 
-    socket.on('room_created', (roomCode) => {
-        currentRoom = roomCode;
-        switchView('admin-view');
-        document.getElementById('admin-room-code').innerText = roomCode;
-        startFastScanner();
+    socket.on('room_created', (code) => {
+        currentRoom = code;
+        document.getElementById('admin-room-code').innerText = code;
+        switchView('view-admin');
+        startScanner();
     });
 
-    // --- SETUP USER ---
-    function setupUser() {
-        switchView('user-view');
-    }
+    // --- USER ACTIONS ---
+    function showJoin() { switchView('view-user'); }
 
     function joinRoom() {
         const code = document.getElementById('room-input').value;
-        if (!code) return alert("Enter code");
+        if(!code) return alert("Enter code!");
         socket.emit('join_room', code);
     }
 
-    socket.on('joined_success', (roomCode) => {
-        document.getElementById('login-form').style.display = 'none';
-        document.getElementById('live-feed').style.display = 'flex';
-        document.getElementById('user-room-disp').innerText = roomCode;
+    socket.on('joined_success', (code) => {
+        document.getElementById('join-section').style.display = 'none';
+        document.getElementById('list-section').style.display = 'block';
+        document.getElementById('user-room-code').innerText = code;
     });
 
-    // --- THE FAST SCANNER LOGIC ---
-    function startFastScanner() {
+    // --- UPDATE LIST (Real-time) ---
+    socket.on('update_list', (historyArray) => {
+        const listEl = document.getElementById('scan-list');
+        listEl.innerHTML = ""; // Clear current list
+
+        historyArray.forEach((text, index) => {
+            const item = document.createElement('div');
+            item.className = 'scan-item';
+            
+            // Check if URL
+            let content = text;
+            if(text.startsWith('http')) {
+                content = `<a href="${text}" target="_blank">${text}</a>`;
+            }
+
+            item.innerHTML = `<span class="index-num">${index + 1}.</span> ${content}`;
+            listEl.appendChild(item);
+        });
+    });
+
+    // --- FAST SCANNER CONFIG ---
+    function startScanner() {
         html5QrCode = new Html5Qrcode("reader");
 
         const config = { 
-            fps: 30,             // Scan 30 times per second (Very Fast)
-            qrbox: { width: 250, height: 250 }, // Focus area
-            aspectRatio: 1.0
+            fps: 30, // High FPS
+            qrbox: { width: 300, height: 300 }, // Larger box = easier aiming
+            aspectRatio: 1.0,
+            // IMPORTANT: Only scan QR codes, ignore barcodes (Saves CPU)
+            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
         };
 
-        // Prefer back camera specifically
         html5QrCode.start(
-            { facingMode: "environment" }, 
+            { facingMode: "environment" }, // Force Back Camera
             config,
-            (decodedText, decodedResult) => {
+            (decodedText) => {
                 // SUCCESS
                 handleScan(decodedText);
             },
             (errorMessage) => {
-                // scanning... (ignore errors to keep console clean)
+                // Ignore parse errors for speed
             }
-        ).catch(err => {
-            console.error("Camera start failed", err);
-            document.getElementById('scan-feedback').innerText = "Camera Error: " + err;
-        });
+        ).catch(err => alert("Camera Error: " + err));
     }
 
-    // Debounce to prevent sending the same code 50 times in 1 second
-    let lastScannedCode = "";
-    let lastScannedTime = 0;
+    // Smart Debounce: Only block if it's the EXACT SAME code instantly.
+    // If you scan Code A then Code B, it happens instantly.
+    let lastCode = "";
+    let lastTime = 0;
 
     function handleScan(text) {
         const now = Date.now();
-        // Only send if it's a new code OR if 2 seconds have passed since last scan
-        if (text !== lastScannedCode || (now - lastScannedTime) > 2000) {
-            
-            lastScannedCode = text;
-            lastScannedTime = now;
-
-            // Visual Feedback for Admin
-            const feedback = document.getElementById('scan-feedback');
-            feedback.innerText = "Sent: " + text;
-            feedback.style.color = "#0f0";
-            setTimeout(() => { feedback.style.color = "#888"; }, 500);
-
-            // Send to Server
-            socket.emit('admin_scan_send', { roomCode: currentRoom, data: text });
-            
-            // OPTIONAL: Vibrate phone on success
-            if (navigator.vibrate) navigator.vibrate(200);
-        }
-    }
-
-    // --- RECEIVE DATA (USER) ---
-    socket.on('receive_scan_data', (data) => {
-        const history = document.getElementById('scan-history');
-        const div = document.createElement('div');
-        div.className = 'scanned-data';
         
-        if (data.startsWith('http')) {
-            div.innerHTML = `<a href="${data}" target="_blank" style="color:#fff; text-decoration:underline;">${data}</a>`;
-        } else {
-            div.innerText = data;
+        // Block only if same code scanned within 2.5 seconds
+        if (text === lastCode && (now - lastTime) < 2500) {
+            return; 
         }
 
-        history.prepend(div); // Add to top
-    });
+        lastCode = text;
+        lastTime = now;
 
-    // --- UTILS ---
-    function switchView(viewId) {
-        document.querySelectorAll('.container > div').forEach(el => el.classList.remove('visible'));
-        document.getElementById(viewId).classList.add('visible');
+        // Vibrate for feedback
+        if(navigator.vibrate) navigator.vibrate(100);
+
+        // Send to server
+        socket.emit('admin_scan_send', { roomCode: currentRoom, data: text });
     }
 
+    function switchView(id) {
+        document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
 </script>
 </body>
 </html>
