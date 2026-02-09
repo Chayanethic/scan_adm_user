@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time QR Scanner</title>
+    
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f0f2f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; margin: 5px; }
+        button:hover { background: #0056b3; }
+        input { padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px; width: 60%; }
+        
+        /* Sections are hidden by default */
+        #menu-view, #admin-view, #user-view { display: none; }
+        .visible { display: block !important; }
+
+        #reader { width: 100%; margin-top: 20px; }
+        .result-box { margin-top: 20px; padding: 15px; background: #e8f5e9; border: 2px solid #4caf50; border-radius: 8px; font-size: 1.2em; word-break: break-all; }
+        .room-badge { font-size: 1.5em; font-weight: bold; color: #d32f2f; margin: 10px 0; }
+    </style>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
+<body>
+
+<div class="container">
+    <h1>LinkSync Scanner</h1>
+
+    <div id="menu-view" class="visible">
+        <p>Are you the Admin or a Viewer?</p>
+        <button onclick="showAdmin()">Create Room (Admin)</button>
+        <button onclick="showUser()">Join Room (User)</button>
+    </div>
+
+    <div id="admin-view">
+        <h2>Admin Panel</h2>
+        <div id="admin-waiting">Creating room...</div>
+        
+        <div id="admin-controls" style="display:none;">
+            <p>Room Code:</p>
+            <div class="room-badge" id="admin-room-code">----</div>
+            <p>Scan a QR Code to send it to users:</p>
+            <div id="reader"></div>
+            <div id="scan-status">Camera ready.</div>
+        </div>
+        <br>
+        <button onclick="location.reload()">Exit / Back</button>
+    </div>
+
+    <div id="user-view">
+        <h2>Viewer Panel</h2>
+        <div id="join-form">
+            <input type="number" id="room-input" placeholder="Enter 4-digit Code">
+            <button onclick="joinRoom()">Join</button>
+        </div>
+
+        <div id="user-content" style="display:none;">
+            <p>Connected to Room: <span id="user-room-code" style="font-weight:bold;"></span></p>
+            <p>Waiting for Admin to scan...</p>
+            
+            <div id="display-area"></div>
+        </div>
+        <br>
+        <button onclick="location.reload()">Exit / Back</button>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let currentRoom = null;
+    let html5QrcodeScanner = null;
+
+    // --- NAVIGATION HELPERS ---
+    function showAdmin() {
+        document.getElementById('menu-view').classList.remove('visible');
+        document.getElementById('admin-view').classList.add('visible');
+        
+        // Ask server to create room
+        socket.emit('create_room');
+    }
+
+    function showUser() {
+        document.getElementById('menu-view').classList.remove('visible');
+        document.getElementById('user-view').classList.add('visible');
+    }
+
+    // --- ADMIN LOGIC ---
+    socket.on('room_created', (roomCode) => {
+        currentRoom = roomCode;
+        document.getElementById('admin-waiting').style.display = 'none';
+        document.getElementById('admin-controls').style.display = 'block';
+        document.getElementById('admin-room-code').innerText = roomCode;
+
+        startScanner();
+    });
+
+    function startScanner() {
+        // Initialize the QR scanner
+        html5QrcodeScanner = new Html5QrcodeScanner(
+            "reader", { fps: 10, qrbox: 250 }
+        );
+
+        html5QrcodeScanner.render((decodedText, decodedResult) => {
+            // SUCCESS SCAN
+            document.getElementById('scan-status').innerText = `Scanned: ${decodedText}`;
+            
+            // Send to server
+            socket.emit('admin_scan_send', { 
+                roomCode: currentRoom, 
+                data: decodedText 
+            });
+
+            // Optional: Pause scanning briefly so we don't spam
+            html5QrcodeScanner.pause();
+            setTimeout(() => html5QrcodeScanner.resume(), 2000);
+        }, (errorMessage) => {
+            // Parse error, ignore usually
+        });
+    }
+
+    // --- USER LOGIC ---
+    function joinRoom() {
+        const code = document.getElementById('room-input').value;
+        if(!code) return alert("Please enter a code");
+        socket.emit('join_room', code);
+    }
+
+    socket.on('joined_success', (roomCode) => {
+        document.getElementById('join-form').style.display = 'none';
+        document.getElementById('user-content').style.display = 'block';
+        document.getElementById('user-room-code').innerText = roomCode;
+    });
+
+    socket.on('error_message', (msg) => {
+        alert(msg);
+    });
+
+    // --- REAL TIME UPDATE ---
+    socket.on('receive_scan_data', (data) => {
+        const display = document.getElementById('display-area');
+        
+        // Check if data is a URL to make it clickable
+        let content = '';
+        if (data.startsWith('http')) {
+            content = `<div class="result-box">
+                        <p>New Link Received:</p>
+                        <a href="${data}" target="_blank">${data}</a>
+                       </div>`;
+        } else {
+            content = `<div class="result-box">
+                        <p>New Data Received:</p>
+                        <strong>${data}</strong>
+                       </div>`;
+        }
+        
+        // Add new scan to top of list
+        display.innerHTML = content + display.innerHTML;
+    });
+
+</script>
+
+</body>
+</html>
